@@ -82,8 +82,8 @@ def FrangiFilter2D(I, FrangiScaleRange=np.array([1, 10]), FrangiScaleRatio=2,
     # Frangi filter for all sigmas
     for i in range(len(sigmas)):
         # Show progress
-        if verbose:
-            print('Current Frangi Filter Sigma: ', str(sigmas[i]))
+        #if verbose:								#comment this to shut it up
+            #print('Current Frangi Filter Sigma: ', str(sigmas[i]))		#comment this to shut it up
 
         # Make 2D hessian
         Dxx, Dxy, Dyy = Hessian2D(I, sigmas[i])
