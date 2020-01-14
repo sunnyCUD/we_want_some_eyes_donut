@@ -1,19 +1,7 @@
 import numpy as np
 import cv2
 import math
-import glob
 from skimage.morphology import skeletonize
-from skimage import util 
-import statistics
-from scipy import signal
-from numpy import inf
-import statistics
-
-def ShowResizedIm(img,windowname,scale):
-    cv2.namedWindow(windowname, cv2.WINDOW_NORMAL)        # Create window with freedom of dimensions
-    height, width = img.shape[:2]   #get image dimension
-    cv2.resizeWindow(windowname,int(width/scale) ,int(height/scale))                    # Resize image
-    cv2.imshow(windowname, img)                      
 
 def rotate(origin, xy, radians):
     """Rotate a point around a given point.
@@ -116,24 +104,6 @@ def skeleton_endpoints(skel):
     out = np.where(filtered==11)
     return out
 
-def unit_vector(vector):
-    """ Returns the unit vector of the vector.  """
-    return vector / np.linalg.norm(vector)
-
-def angle_between(v1, v2):
-    """ Returns the angle in radians between vectors 'v1' and 'v2'::
-
-            >>> angle_between((1, 0, 0), (0, 1, 0))
-            1.5707963267948966
-            >>> angle_between((1, 0, 0), (1, 0, 0))
-            0.0
-            >>> angle_between((1, 0, 0), (-1, 0, 0))
-            3.141592653589793
-    """
-    v1_u = unit_vector(v1)
-    v2_u = unit_vector(v2)
-    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
-
 def extract_bv(image):
     b,green_fundus,r = cv2.split(image)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
@@ -183,16 +153,19 @@ def extract_bv(image):
     
     return blood_vessels
 
-def find_cup(img_ROI,img_ROIL):
+def find_cup(imgROI,imgROI_disc):
     ########## INITIALIZING ##########
-    blue,green,red = cv2.split(img_ROIL)
-    row = height = img_ROIL.shape[0]
-    col = width = img_ROIL.shape[1]
+    blue,green,red = cv2.split(imgROI)
+    row = height = imgROI_disc.shape[0]
+    col = width = imgROI_disc.shape[1]
     
-    ###########------------------------------- Disc boundary 
-    ############detect blue
-    hsv = cv2.cvtColor(img_ROIL, cv2.COLOR_BGR2HSV)
-
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    green = clahe.apply(green)
+    green = cv2.morphologyEx(green, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(51,51)), iterations = 1)
+    
+    #-------------------------------detect disc------------------------------------
+    hsv = cv2.cvtColor(imgROI_disc, cv2.COLOR_BGR2HSV)
+    
     ##### Blue
     lower_range = np.array([110,50,50])
     upper_range = np.array([130, 255,255])
@@ -201,51 +174,57 @@ def find_cup(img_ROI,img_ROIL):
     lower_range = np.array([40, 40,40])
     upper_range = np.array([70, 255,255])
     '''
-    disc = cv2.inRange(hsv, lower_range, upper_range)    
+    disc = cv2.inRange(hsv, lower_range, upper_range)
     
-    image_result = img_ROI.copy()
+    image_result = imgROI.copy()
+    center = [int(row/2), int(col/2)]
     __,contours, _ = cv2.findContours(disc, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
-    if len(contours) != 0:
+    if contours is not None:
         hull= cv2.convexHull(contours[0])
+        (center[0], center[1]), (MA, ma), angle = cv2.fitEllipse(hull)
         cv2.ellipse(disc, cv2.fitEllipse(hull), (255,255,255), thickness=cv2.FILLED)
-        cv2.ellipse(image_result, cv2.fitEllipse(hull), (0,255,0), 2)
+        cv2.ellipse(image_result, cv2.fitEllipse(hull), (0,255,0), thickness=2)
     
-    ########### SAMPLING IMAGE ###############
+    #------------------------------- SAMPLING IMAGE -------------------------------
     sampling = np.zeros((row, col))
-    center = [int(row/2),int(col/2)]
     i=0
     mum = 4
-    
-    while(i<center[1]-40):
+    while(i<center[1]-80):
+        
         sampling_posO = [center[0],center[1]+i+40]
+        
         for j in range(0,360,mum):
+            
             theta = np.radians(j)
             x,y = rotate(center, sampling_posO, theta)
             sampling_pos = [round(y),round(x)]
-            sampling[sampling_pos[0],sampling_pos[1]] = 255
-        i+=5
+            sampling[sampling_pos[0],sampling_pos[1]] = green[sampling_pos[0],sampling_pos[1]]
+            
+        i+=4
         
     ##substract sampling by disc
     kernel = np.ones((15,15),np.uint8)
-    disc_small = cv2.erode(disc,kernel,iterations = 2)
+    disc_small = cv2.erode(disc,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(43,43)),iterations = 1)
     
-    print(disc_small.shape)
-    print(sampling.shape)
     disc_small= disc_small.astype('float64')
     heuristic = cv2.bitwise_and(sampling, disc_small)
     
-    ########### vessel curvature detection ###############
+    #-------------------------- vessel curvature detection ------------------------
     ##vessel detection
-    blood_vessels = extract_bv(img_ROI)
+    blood_vessels = extract_bv(imgROI)
+    BV_forskeleton = cv2.medianBlur(blood_vessels,11)
+    blood_vessels = cv2.dilate(blood_vessels,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(7,7)),iterations = 1)
+    
     blood_vessels = (255-blood_vessels)/255
+    BV_forskeleton = (255-BV_forskeleton)/255
     
     ##Curve vessel
-    skeleton = skeletonize(blood_vessels)
+    skeleton = skeletonize(BV_forskeleton)
     skeleton = skeleton*255
     skeleton = skeleton.astype(np.uint8)
-    skeleton_copy = skeleton.copy()
     disc_small = disc_small.astype(np.uint8)
     skeleton = cv2.bitwise_and(skeleton, disc_small)
+    skeleton_copy = skeleton.copy()
     
     #store skeelton's white pixels
     points = []
@@ -256,18 +235,17 @@ def find_cup(img_ROI,img_ROIL):
     
     intersections = getSkeletonIntersection(skeleton)
     for i in range(len(intersections)):
-        cv2.circle(skeleton_copy, intersections[i], 2, (255,255,255), 2) 
+        cv2.circle(skeleton_copy, intersections[i], 2, (255,255,255), thickness=cv2.FILLED) #skeleton_copy to see where intercet and end points
         
     end_pointTU = skeleton_endpoints(skeleton)
     end_points = []
     for i in range(len(end_pointTU[0])):
-        cv2.circle(skeleton_copy, (end_pointTU[1][i],end_pointTU[0][i]), 2, (255,255,255), 2)
+        cv2.circle(skeleton_copy, (end_pointTU[1][i],end_pointTU[0][i]), 2, (255,255,255), thickness=cv2.FILLED)
         x = end_pointTU[1][i]
         y = end_pointTU[0][i]
         end_points.append([x,y])
     
-    ##store all intersect points to end_point in list [x,y]
-    #double the numbers inside
+    ##store all intersect points to end_point in [x,y] form
     for i in range(len(intersections)):   
         end_points.append(list(intersections[i]))
         
@@ -349,7 +327,7 @@ def find_cup(img_ROI,img_ROIL):
         counts=counts+1
     
     for i in range(len(line)-1, -1, -1):
-        if len(line[i]) <=10:
+        if len(line[i]) <=20:
             line.pop(i)
             
     #Find curve at each line
@@ -360,8 +338,8 @@ def find_cup(img_ROI,img_ROIL):
         j=0
         while j+6<len(line[i]):
             x1,y1 = line[i][j][:2]
-            x,y = line[i][j+3][:2]
-            x2,y2 = line[i][j+6][:2]
+            x,y = line[i][j+2][:2]
+            x2,y2 = line[i][j+4][:2]
             theta1 = math.atan2(y-y1, x-x1)
             theta2 = math.atan2(y2-y, x2-x)
             theta = np.abs(theta1 - theta2)
@@ -371,16 +349,6 @@ def find_cup(img_ROI,img_ROIL):
             j+=1
         intensity_c[i].sort()       
     
-    #######Radial Gradient
-    radialGra_pos = []
-    for i in range(height):
-        for j in range(width):
-            if heuristic[i,j]==255:
-                radialGra_pos.append([i,j])
-    
-    for i in range(len(radialGra_pos)):
-        heuristic[radialGra_pos[i][0],radialGra_pos[i][1]] = green[radialGra_pos[i][0],radialGra_pos[i][1]]
-    
     ##substract gradient image by vessel
     kernel = np.ones((5,5),np.uint8)
     blood_vessels = cv2.dilate(blood_vessels,kernel,iterations = 1)
@@ -388,18 +356,17 @@ def find_cup(img_ROI,img_ROIL):
         for j in range(blood_vessels.shape[1]):
             if blood_vessels[i,j] == 1:
                 heuristic[i,j] = 0
-    
-    ###------------------------- calculate to find cup
-    #------------from INTENSITY
-    ##gradiant_pos = postion at each rotation
+                
+    ###------------------------- calculate to find cup ----------------------------
+    ##------------from INTENSITY
+    #gradiant_pos = postion at each rotation, count = at theta count
     gradiant_pos = []
+    
     for i in range(int(360/mum)):
         gradiant_pos.append([])
-    center = [int(row/2),int(col/2)]
     i=0
-    count = 0
-    while(i<center[1]-50):
-        sampling_posO = [center[0],center[1]+i+30]
+    while(i<center[1]-80):
+        sampling_posO = [center[0],center[1]+i+40]
         count = 0
         for j in range(0,360,mum):
             theta = np.radians(j)
@@ -408,7 +375,7 @@ def find_cup(img_ROI,img_ROIL):
             x = round(x)
             gradiant_pos[count].append([y,x])
             count+=1
-        i+=5
+        i+=4
     
     intens = []
     for i in range(len(gradiant_pos)):
@@ -428,14 +395,14 @@ def find_cup(img_ROI,img_ROIL):
         count.sort()        ####combine all difference intensity then sort
         if len(count)>5:
             for i in range(len(count)-1,0,-1):
-                if max_intens-heuristic[count[i][1],count[i][2]]<=42:
+                if max_intens-heuristic[count[i][1],count[i][2]]<=40:
                     select = count[i]
                     updateROW = select[1]
                     updateCOL = select[2]                
                     diffIntens_pos.append([updateROW,updateCOL])
                     break
     
-    #from Blood vessel
+    ##------------from Blood vessel
     Cves_intens = []
     sum_intens = 0
     for i in range(curve_vessel.shape[0]):
@@ -444,36 +411,65 @@ def find_cup(img_ROI,img_ROIL):
                 Cves_intens.append(curve_vessel[i,j])
                 sum_intens+=curve_vessel[i,j] 
     Cves_intens.sort()
-    if len(Cves_intens)!=0:
-        _,curve_vessel = cv2.threshold(curve_vessel,Cves_intens[int(len(Cves_intens)*0.97)],255,cv2.THRESH_BINARY)
+    if Cves_intens!=[]:
+        _,curve_vessel = cv2.threshold(curve_vessel,Cves_intens[int(len(Cves_intens)*0.92)],255,cv2.THRESH_BINARY)
     
-    ##--------------- drawing cup
+    ##--------------- plot points
     cupB_pos = diffIntens_pos.copy()
     canvas = np.zeros((row,col))
     for i in range(len(cupB_pos)):
         if len(cupB_pos[i])>0:
-            cv2.circle(heuristic, (cupB_pos[i][1], cupB_pos[i][0]), 1, (255, 255, 255), 1)        
+            cv2.circle(heuristic, (cupB_pos[i][1], cupB_pos[i][0]), 2, (255, 255, 255), -1)        
             cv2.circle(canvas, (cupB_pos[i][1], cupB_pos[i][0]), 3, (255, 255, 255), -1)
+#            cv2.circle(image_result, (cupB_pos[i][1], cupB_pos[i][0]), 2, (125, 125, 125), -1)      #for testing, care to remove in the future
     
     kernel = np.ones((5,5),np.uint8)
     curve_vessel = cv2.dilate(curve_vessel,kernel,iterations = 1)
     canvas = cv2.bitwise_or(canvas, curve_vessel)
+    
+#    for i in range(500):                    #for testing, care to remove in the future
+#        for j in range(500):
+#            if curve_vessel[i,j] == 255:
+#                image_result[i,j][0] = 0
+#                image_result[i,j][1] = 0
+#                image_result[i,j][2] = 0
+    
+    ##--------------- draw circle on cup
     canvas = canvas.astype('uint8')
+    
     circles = cv2.HoughCircles(canvas,cv2.HOUGH_GRADIENT,1,250,
-                                param1=1,param2=2,minRadius=30,maxRadius=100)
+                                param1=1,param2=1,minRadius=10,maxRadius=100)
     error = 'error_none'
-    if len(circles)>0:
-        cv2.circle(canvas ,(circles[0][0][0],circles[0][0][1]),circles[0][0][2],(255,255,255),1)
-        cv2.circle(image_result ,(circles[0][0][0],circles[0][0][1]),circles[0][0][2],(255,0,0),2)
+    if circles is None:
+        error = 'circles not found'
+        center = error
+        radious = error
+        area = error
     else:
-        print("circles not found or more than 2")
-        error = 'circles not found or more than 2'
+        circles = np.uint16(np.around(circles))
+        count_set = []
+        for i in circles[0,:]:
+            mask_test = np.zeros((canvas.shape[0],canvas.shape[1]))
+            count=0
+            cv2.circle(mask_test,(i[0],i[1]),i[2],(255,255,255),2)
+            for j in range(canvas.shape[0]):
+                for k in range(canvas.shape[1]):
+                    if mask_test[j,k]!=0 and mask_test[j,k]==canvas[j,k]:
+                        count+=1
+            count_set.append(count)
+        most_fitting = np.amax(count_set)
+        most_fitting_index = count_set.index(most_fitting)
+        
+    cv2.circle(canvas ,(circles[0][most_fitting_index][0],circles[0][most_fitting_index][1]),circles[0][most_fitting_index][2],(255,255,255),1)
+    cv2.circle(image_result ,(circles[0][most_fitting_index][0],circles[0][most_fitting_index][1]),circles[0][most_fitting_index][2],(255,0,0),2)
+    center = (circles[0][most_fitting_index][0],circles[0][most_fitting_index][1])
+    radious = circles[0][most_fitting_index][2]
+    area = np.pi*radious**2
+    
     # add all together = heuristic image
     heuristic = cv2.add(curve_vessel, heuristic)
     blood_vessels = blood_vessels*255
     
-    center = (circles[0][0][0],circles[0][0][1])
-    radious = circles[0][0][2]
-    area = np.pi*radious**2
+    #print(error)
     
     return center, radious, area, error, image_result
