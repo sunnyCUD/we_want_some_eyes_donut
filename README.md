@@ -10,7 +10,7 @@ I'm the author of these following codes
 8. ROI_from_excel.ipynb
 9. VSL.ipynb
 and some .py file with the same name.
-Everything else if coded by someome else.
+Everything else is coded by someome else.
 ## Detail of each code
 1. click roi save excel.ipynb: 
 In cup and disc segmentation development, developers need to crop an image for the ROI. 
