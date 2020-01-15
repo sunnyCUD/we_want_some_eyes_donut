@@ -23,31 +23,44 @@ from pandas import ExcelFile
 
 def getCDR(img,ROI_size):
     canvas = img.copy()
+    ODC_flag = 0
+    OD_flag = 0
+    OC_flag = 0
     #1 img -> preprocess
     #2 proprocess -> coordinate
     xODC,yODC = dwtopticdiscfinder(img)
     xODC = int(xODC)
     yODC = int(yODC)
+    if type(xODC) is not type(None) and type(yODC) is not type(None):
+        ODC_flag = 1
     #3 coordinate -> ROI
-    ROI_image,x_ROI1,y_ROI1,x_ROI2,y_ROI2 = getROI(img,xODC,yODC,ROI_size)
-    print(ROI_image.shape[:2])
+    if ODC_flag:
+        ROI_image,x_ROI1,y_ROI1,x_ROI2,y_ROI2 = getROI(img,xODC,yODC,ROI_size)
     #4 disc
-    canvas,__,top_OD,__,bot_OD,snake = activecontour(canvas,ROI_image,xODC,
-                                               yODC,ROI_size,radius=250,B=90,WL=0.123,WE=6.5)
-    ROI_imageL,x_ROI1,y_ROI1,x_ROI2,y_ROI2 = getROI(canvas,xODC,yODC,ROI_size)
-    
-    OD_size = round(bot_OD-top_OD,0)
+    if ODC_flag:
+        canvas,__,top_OD,__,bot_OD,snake = activecontour(canvas,ROI_image,xODC,
+                                                   yODC,ROI_size,radius=250,B=90,WL=0.123,WE=6.5)
+    if type(top_OD) is not type(None) and type(bot_OD) is not type(None) and type(snake) is not type(None):
+        OD_flag = 1
+        OD_size = round(bot_OD-top_OD,0)
     #5 cup
-    print(ROI_image.shape[:2])
-    center, radious, area, error, image_result = find_cup(ROI_image,ROI_imageL)
-    cv2.circle(canvas,(int(center[0]+x_ROI1),int(center[1]+y_ROI1)), radious,(0,255,0),2)
-    OC_size = round(radious*2,0)
+    if ODC_flag and OD_flag:
+        ROI_imageL,x_ROI1,y_ROI1,x_ROI2,y_ROI2 = getROI(canvas,xODC,yODC,ROI_size)
+        center, radious, area, error, image_result = find_cup(ROI_image,ROI_imageL)
+    if type(center) is not type(None) and type(radious) is not type(None):
+        OC_flag = 1
+    if OC_flag:
+        cv2.circle(canvas,(int(center[0]+x_ROI1),int(center[1]+y_ROI1)), radious,(0,255,0),2)
+        OC_size = round(radious*2,0)
     #6 CDR
-    CDR = round(OC_size/OD_size,2)
-    cv2.line(canvas, (xODC+20, yODC), (xODC-20, yODC), (0, 0, 255), 3) 
-    cv2.line(canvas, (xODC, yODC+20), (xODC, yODC-20), (0, 0, 255), 3) 
-    return canvas,OD_size,OC_size,CDR
-
+    if ODC_flag:
+        cv2.line(canvas, (xODC+20, yODC), (xODC-20, yODC), (0, 0, 255), 3) 
+        cv2.line(canvas, (xODC, yODC+20), (xODC, yODC-20), (0, 0, 255), 3) 
+    if OD_flag and OC_flag:
+        CDR = round(OC_size/OD_size,2)
+        return canvas,OD_size,OC_size,CDR
+    else:
+        return canvas,None,None,None
 
 # In[7]:
 

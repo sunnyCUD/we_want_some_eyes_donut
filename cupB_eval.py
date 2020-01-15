@@ -156,17 +156,18 @@ def extract_bv(image):
 def find_cup(imgROI,imgROI_disc):
     ########## INITIALIZING ##########
     blue,green,red = cv2.split(imgROI)
-    row = height = imgROI_disc.shape[0]
-    col = width = imgROI_disc.shape[1]
+    row = height = imgROI.shape[0]
+    col = width = imgROI.shape[1]
     
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     green = clahe.apply(green)
-    green = cv2.morphologyEx(green, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(51,51)), iterations = 1)
+    green = cv2.morphologyEx(green, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(61,61)), iterations = 1)
     
     #-------------------------------detect disc------------------------------------
     hsv = cv2.cvtColor(imgROI_disc, cv2.COLOR_BGR2HSV)
     
     ##### Blue
+    
     lower_range = np.array([110,50,50])
     upper_range = np.array([130, 255,255])
     '''
@@ -189,17 +190,19 @@ def find_cup(imgROI,imgROI_disc):
     sampling = np.zeros((row, col))
     i=0
     mum = 4
-    while(i<center[1]-80):
+    dist_sampSmall = 35
+    dist_sampBig = (col-ma)/2+dist_sampSmall
+    while(i<center[1]-dist_sampBig):
         
-        sampling_posO = [center[0],center[1]+i+40]
+        sampling_posO = [center[0],center[1]+i+dist_sampSmall]
         
         for j in range(0,360,mum):
             
             theta = np.radians(j)
             x,y = rotate(center, sampling_posO, theta)
             sampling_pos = [round(y),round(x)]
-            sampling[sampling_pos[0],sampling_pos[1]] = green[sampling_pos[0],sampling_pos[1]]
-            
+            if sampling_pos[0]<row and sampling_pos[1]<col:
+                sampling[sampling_pos[0],sampling_pos[1]] = green[sampling_pos[0],sampling_pos[1]]
         i+=4
         
     ##substract sampling by disc
@@ -365,15 +368,16 @@ def find_cup(imgROI,imgROI_disc):
     for i in range(int(360/mum)):
         gradiant_pos.append([])
     i=0
-    while(i<center[1]-80):
-        sampling_posO = [center[0],center[1]+i+40]
+    while(i<center[1]-dist_sampBig):
+        sampling_posO = [center[0],center[1]+i+dist_sampSmall]
         count = 0
         for j in range(0,360,mum):
             theta = np.radians(j)
             x,y = rotate(center, sampling_posO, theta)
             y = round(y)
             x = round(x)
-            gradiant_pos[count].append([y,x])
+            if y<row and x<col:
+                gradiant_pos[count].append([y,x])
             count+=1
         i+=4
     
@@ -381,7 +385,10 @@ def find_cup(imgROI,imgROI_disc):
     for i in range(len(gradiant_pos)):
         for j in range(len(gradiant_pos[i])):
             intens.append(heuristic[gradiant_pos[i][j][0],gradiant_pos[i][j][1]])
-    max_intens = np.amax(intens)
+    if len(intens)!=0:
+        max_intens = np.amax(intens)
+    else:
+        max_intens = 0
     
     diffIntens_pos = []
     for i in range(len(gradiant_pos)):
@@ -421,18 +428,10 @@ def find_cup(imgROI,imgROI_disc):
         if len(cupB_pos[i])>0:
             cv2.circle(heuristic, (cupB_pos[i][1], cupB_pos[i][0]), 2, (255, 255, 255), -1)        
             cv2.circle(canvas, (cupB_pos[i][1], cupB_pos[i][0]), 3, (255, 255, 255), -1)
-#            cv2.circle(image_result, (cupB_pos[i][1], cupB_pos[i][0]), 2, (125, 125, 125), -1)      #for testing, care to remove in the future
     
     kernel = np.ones((5,5),np.uint8)
     curve_vessel = cv2.dilate(curve_vessel,kernel,iterations = 1)
     canvas = cv2.bitwise_or(canvas, curve_vessel)
-    
-#    for i in range(500):                    #for testing, care to remove in the future
-#        for j in range(500):
-#            if curve_vessel[i,j] == 255:
-#                image_result[i,j][0] = 0
-#                image_result[i,j][1] = 0
-#                image_result[i,j][2] = 0
     
     ##--------------- draw circle on cup
     canvas = canvas.astype('uint8')
@@ -442,9 +441,9 @@ def find_cup(imgROI,imgROI_disc):
     error = 'error_none'
     if circles is None:
         error = 'circles not found'
-        center = error
-        radious = error
-        area = error
+        center = None
+        radious = None
+        area = None
     else:
         circles = np.uint16(np.around(circles))
         count_set = []
@@ -460,11 +459,11 @@ def find_cup(imgROI,imgROI_disc):
         most_fitting = np.amax(count_set)
         most_fitting_index = count_set.index(most_fitting)
         
-    cv2.circle(canvas ,(circles[0][most_fitting_index][0],circles[0][most_fitting_index][1]),circles[0][most_fitting_index][2],(255,255,255),1)
-    cv2.circle(image_result ,(circles[0][most_fitting_index][0],circles[0][most_fitting_index][1]),circles[0][most_fitting_index][2],(255,0,0),2)
-    center = (circles[0][most_fitting_index][0],circles[0][most_fitting_index][1])
-    radious = circles[0][most_fitting_index][2]
-    area = np.pi*radious**2
+        cv2.circle(canvas ,(circles[0][most_fitting_index][0],circles[0][most_fitting_index][1]),circles[0][most_fitting_index][2],(255,255,255),1)
+        cv2.circle(image_result ,(circles[0][most_fitting_index][0],circles[0][most_fitting_index][1]),circles[0][most_fitting_index][2],(255,0,0),2)
+        center = (circles[0][most_fitting_index][0],circles[0][most_fitting_index][1])
+        radious = circles[0][most_fitting_index][2]
+        area = np.pi*radious**2
     
     # add all together = heuristic image
     heuristic = cv2.add(curve_vessel, heuristic)
